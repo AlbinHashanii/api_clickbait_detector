@@ -9,6 +9,5 @@ joblib==1.4.2
 numpy==1.23.5
 transformers==4.46.3
 nltk==3.8.1
-torch==2.0.1
 gunicorn==23.0.0
 deep-translator==1.9.0
