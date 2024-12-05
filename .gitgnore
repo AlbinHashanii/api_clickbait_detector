@@ -1,0 +1,46 @@
+# Python cache and compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environment variables and config files
+.env
+*.env
+config.json
+
+# Virtual environment folders
+venv/
+ENV/
+env/
+
+# Logs and debug files
+*.log
+*.pot
+*.pyc
+
+# Flask instance folder
+instance/
+
+# IDE-specific files
+.idea/
+.vscode/
+
+# Byte-compiled and optimizations
+*.pyo
+*.pyd
+
+# Database and migrations
+*.sqlite3
+migrations/
+
+# Static and media files (optional: remove this if you want to version control them)
+staticfiles/
+media/
+
+# OS-generated files
+.DS_Store
+Thumbs.db
+
+# Render-specific files (if used for deployment)
+render.yaml
+
