@@ -5,21 +5,14 @@ from flask_cors import CORS
 import joblib
 import requests
 from transformers import pipeline
-from tensorflow.keras.models import load_model
-from tensorflow.keras.preprocessing.sequence import pad_sequences
-from tensorflow.keras.preprocessing.text import Tokenizer
 from bs4 import BeautifulSoup
 from deep_translator import GoogleTranslator
-import tensorflow as tf
 from flask_bcrypt import Bcrypt
 import firebase_admin
 from firebase_admin import credentials, firestore
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 import time
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
 import random
 import json
 import logging
@@ -89,15 +82,6 @@ def predict_the_clickbait(headline):
     except Exception as e:
         print(f"Error: {e}")
         return None
-
-
-
-
-
-# OpenAI API key from environment
-
-
-
 
 # # Clickbait tokenizer
 # clickbait_tokenizer = Tokenizer(num_words=20000)
