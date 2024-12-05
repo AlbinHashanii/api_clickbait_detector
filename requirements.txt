@@ -17,3 +17,5 @@ scipy==1.14.1
 tqdm==4.67.0
 transformers==4.46.3
 openai==0.28.0
+tensorflow
+
