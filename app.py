@@ -47,7 +47,7 @@ app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'your_default_secret_key')
 # Firebase initialization
 current_directory = os.path.dirname(os.path.abspath(__file__))
 
-firebase_credentials_path = "etc/secrets/firestore.txt"
+firebase_credentials_path = "/etc/secrets/firestore.txt"
 
 if not os.path.exists(firebase_credentials_path):
     raise Exception(f"Firebase credentials file not found at {firebase_credentials_path}")
