@@ -46,7 +46,7 @@ app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'your_default_secret_key')
 
 # Firebase initialization
 current_directory = os.path.dirname(os.path.abspath(__file__))
-firebase_sdk_path = "etc/secrets/insightanalyze-firebase-adminsdk-ddwvh-039d5e356a.json"
+firebase_sdk_path = os.environ.get('FIREBASE_PATH')
 firebase_cred = credentials.Certificate(firebase_sdk_path)
 firebase_admin.initialize_app(firebase_cred)
 db = firestore.client()
