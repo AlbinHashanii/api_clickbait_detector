@@ -46,14 +46,31 @@ app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'your_default_secret_key')
 
 # Firebase initialization
 current_directory = os.path.dirname(os.path.abspath(__file__))
-firebase_sdk_path = os.environ.get('FIREBASE_PATH')
-firebase_cred = credentials.Certificate(firebase_sdk_path)
-firebase_admin.initialize_app(firebase_cred)
-db = firestore.client()
 
-# model_path = '/home/webintel/Desktop/InsightAnalyze/api_insight_analyze/data/clickbait_data/results/checkpoint-5370'
-# tokenizer = BertTokenizer.from_pretrained(model_path)
-# model = BertForSequenceClassification.from_pretrained(model_path)
+firebase_credentials_path = "etc/secrets/firestore.txt"
+
+if not os.path.exists(firebase_credentials_path):
+    raise Exception(f"Firebase credentials file not found at {firebase_credentials_path}")
+
+with open(firebase_credentials_path, "r") as file:
+    firebase_json = file.read()
+
+try:
+    # Parse the JSON content
+    firebase_cred_data = json.loads(firebase_json)
+
+    # Initialize Firebase Admin SDK
+    firebase_cred = credentials.Certificate(firebase_cred_data)
+    firebase_admin.initialize_app(firebase_cred)
+
+    # Initialize Firestore
+    db = firestore.client()
+    print("Firebase and Firestore initialized successfully.")
+except json.JSONDecodeError as e:
+    raise Exception(f"Failed to parse Firebase credentials JSON: {e}")
+except Exception as e:
+    raise Exception(f"Failed to initialize Firebase: {e}")
+
 
 model_path = os.path.join('data', 'clickbait_data', 'clickbait_detector_model.pkl')
 vectorizer_path = os.path.join('data', 'clickbait_data', 'clickbait_vectorizer.pkl')
