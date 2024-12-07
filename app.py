@@ -24,6 +24,8 @@ import string
 from nltk.corpus import stopwords
 import nltk
 import string
+from urllib.parse import urlparse
+from collections import Counter
 warnings.filterwarnings("ignore", category=UserWarning)
 
 
@@ -36,14 +38,15 @@ load_dotenv()
 device = 0 if torch.cuda.is_available() else -1 
 
 app = Flask(__name__)
-CORS(app, origins="*")
+CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 
 
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'your_default_secret_key')
 
 
 # Firebase initialization
-firebase_sdk_path = os.environ.get('FIREBASE_ADMIN_SDK_PATH', './insightanalyze-firebase-adminsdk-ddwvh-57c48acc2b.json')
+current_directory = os.path.dirname(os.path.abspath(__file__))
+firebase_sdk_path = os.path.join(current_directory,'etc','secrets','insightanalyze-firebase-adminsdk-ddwvh-039d5e356a.json')
 firebase_cred = credentials.Certificate(firebase_sdk_path)
 firebase_admin.initialize_app(firebase_cred)
 db = firestore.client()
@@ -271,6 +274,52 @@ def scrape_url(url):
             'url': url
         }
     
+@app.route('/remove_empty_articles', methods=['DELETE'])
+def remove_empty_articles():
+    try:
+        # Reference the 'news_articles' collection
+        articles_ref = db.collection('news_articles')
+        articles = articles_ref.stream()
+
+        # Track deleted articles and duplicates
+        deleted_count = 0
+        seen_articles = set()
+
+        for article in articles:
+            article_data = article.to_dict()
+            article_id = article.id
+
+            # Get title and description
+            title = article_data.get('title', '').strip()
+            description = article_data.get('description', '').strip()
+
+            # Check for empty or invalid title/description
+            if not title or title in ["No title found", "Server Error"] or not description:
+                # Delete the article from Firestore
+                articles_ref.document(article_id).delete()
+                deleted_count += 1
+                continue
+
+            # Create a unique key for the article based on title and description
+            article_key = (title, description)
+
+            # Check for duplicates
+            if article_key in seen_articles:
+                articles_ref.document(article_id).delete()
+                deleted_count += 1
+            else:
+                seen_articles.add(article_key)
+
+        return jsonify({
+            'message': f'Successfully removed {deleted_count} articles with empty, invalid, or duplicate content.'
+        }), 200
+
+    except Exception as e:
+        logger.error(f"An error occurred while removing articles: {str(e)}")
+        return jsonify({'error': f"An unexpected error occurred: {str(e)}"}), 500
+
+
+    
 def chat_with_custom_api(conversation_history, retries=3):
     try:
         # Ensure conversation history is below 256 characters
@@ -331,10 +380,10 @@ def identify_locations(text):
     return locations
 
 def calculate_similarity(title, description):
-    vectorizer = TfidfVectorizer().fit_transform([title, description])
-    vectors = vectorizer.toarray()
-    similarity = cosine_similarity(vectors)[0][1]
-    return similarity > 0.7
+    vectorizer = TfidfVectorizer()
+    vectors = vectorizer.fit_transform([title, description])
+    return cosine_similarity(vectors[0], vectors[1])[0][0]
+
 
 def is_location_in_kosovo(locations):
     return any(location in kosovo_cities for location in locations)
@@ -400,6 +449,8 @@ def get_news_article(article_id):
         print(f"An error occurred: {str(e)}")
         return jsonify({'error': f"An error occurred: {str(e)}"}), 500
 
+from urllib.parse import urlparse
+
 @app.route('/predict', methods=['POST'])
 def predict():
     data = request.get_json()
@@ -412,6 +463,7 @@ def predict():
     try:
         headers = {'User-Agent': 'Mozilla/5.0'}
         response = requests.get(article_url, headers=headers)
+        response.raise_for_status()
         soup = BeautifulSoup(response.content, 'html.parser')
 
         # Extract Title
@@ -427,8 +479,11 @@ def predict():
         # Extract Image URL
         image_url = soup.find('meta', {'property': 'og:image'})['content'] if soup.find('meta', {'property': 'og:image'}) else 'https://via.placeholder.com/1920x1080'
 
-        # Extract Author
-        author = soup.find('meta', {'name': 'author'})['content'] if soup.find('meta', {'name': 'author'}) else 'Anonymous'
+        # Extract Author or Use Domain
+        author = soup.find('meta', {'name': 'author'})['content'] if soup.find('meta', {'name': 'author'}) else None
+        if not author:
+            domain = urlparse(article_url).netloc
+            author = domain.replace('www.', '')  # Clean domain name
 
         # Extract Publication Date
         post_date = soup.find('meta', {'property': 'article:published_time'})['content'] if soup.find('meta', {'property': 'article:published_time'}) else 'Unknown Date'
@@ -448,17 +503,29 @@ def predict():
         # Calculate similarity between title and description
         title_description_similarity = calculate_similarity(translated_title, translated_description)
 
-        # Clickbait Prediction Using the Model
+        # Clickbait Probability from the Trained Model
         clickbait_probability = predict_the_clickbait(translated_title)
 
-        # Determine if it's clickbait based on probability and other factors
-        is_clickbait = False  # Default to not clickbait
-        if in_kosovo:
-            is_clickbait = False  # Not clickbait if in Kosovo
-        elif title_description_similarity:
-            is_clickbait = False  # Not clickbait if title and description are similar
-        elif clickbait_probability >= 0.5:
-            is_clickbait = True  # Clickbait if model predicts high probability
+        # Adjust Probability Based on Factors
+        if not in_kosovo:
+            # Locations found but not in the title
+            unmentioned_locations = [loc for loc in locations if loc not in translated_title]
+            if unmentioned_locations:
+                for location in unmentioned_locations:
+                    if not is_location_in_kosovo([location]):
+                        clickbait_probability += 0.5  # Large increase for unmentioned non-Kosovo locations
+                    else:
+                        clickbait_probability += 0.1  # Smaller increase for unmentioned Kosovo locations
+
+            # Adjust for no title-description similarity
+            if not title_description_similarity:
+                clickbait_probability += 0.3  # Increase probability for low similarity
+
+        # Cap Probability at 1.0
+        clickbait_probability = min(1.0, clickbait_probability)
+
+        # Determine if Clickbait
+        is_clickbait = clickbait_probability >= 0.5
 
         # Prepare Article Data
         article_data = {
@@ -504,15 +571,16 @@ def predict():
             'true_classification': true_classification
         }), 200
 
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Request error: {str(e)}")
+        return jsonify({'error': 'Failed to fetch article content. Please check the URL.'}), 500
+
     except Exception as e:
         logger.error(f"An error occurred: {str(e)}")
-        return jsonify({'error': f"An error occurred: {str(e)}"}), 500
+        return jsonify({'error': f"An unexpected error occurred: {str(e)}"}), 500
 
 
 
-from urllib.parse import urlparse
-from collections import Counter
-from flask import jsonify
 
 @app.route('/stats', methods=['GET'])
 def get_stats():
@@ -611,8 +679,6 @@ def get_news_articles():
     except Exception as e:
         print(f"An error occurred: {e}")
         return jsonify({'error': f"An error occurred: {str(e)}"}), 500
-
-import re
 
 @app.route('/chat', methods=['POST'])
 def chat():
@@ -758,73 +824,81 @@ def login():
         return jsonify({'message': 'Login successful', 'user': user}), 200
     else:
         return jsonify({'error': 'Invalid credentials'}), 401
+        
+@app.route('/get_users', methods=['GET'])
+def get_all_users():
+    try:
+        users_ref = db.collection('Users').stream()
+        users = [doc.to_dict() for doc in users_ref]
+        return jsonify(users), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 
 @app.route('/profile', methods=['POST'])
 def update_profile():
     print("Received request to update profile")  # Debug log
     try:
-        # Get the profile data sent from the frontend
         data = request.get_json()
-        print(f"Data received: {data}")  # Log the received data
+        email = data.get('email', '').strip().lower()  # Normalize email
 
-        email = data.get('email')  # Get email from the frontend
-        first_name = data.get('first_name')
-        last_name = data.get('last_name')
-        profile_picture_url = data.get('profile_picture_url')
+        if not email:
+            return jsonify({'error': 'Email is required'}), 400
 
-        # Check for missing fields
-        if not email or not first_name or not last_name:
-            print("Missing fields in the request")  # Log if fields are missing
-            return jsonify({'error': 'Missing fields'}), 400
+        print(f"Looking for user with email: {email}")
 
-        # Update Firestore document with the given email
-        user_ref = db.collection('Users').document(email)
-        user_ref.update({
+        # Query by email field
+        users = db.collection('Users').where('email', '==', email).get()
+        if not users:
+            print(f"User not found for email: {email}")
+            return jsonify({'error': 'User not found'}), 404
+
+        user_ref = users[0].reference  # Reference to the Firestore document
+
+        # Extract fields to update
+        first_name = data.get('first_name', '').strip()
+        last_name = data.get('last_name', '').strip()
+        profile_picture_url = data.get('profile_picture_url', '').strip()
+
+        # Optional fields
+        country = data.get('country', '').strip()
+        phone_number = data.get('phone_number', '').strip()
+        language = data.get('language', '').strip()
+        timezone = data.get('timezone', '').strip()
+        role = data.get('role', '').strip()
+        is_active = data.get('is_active')
+
+        if not first_name or not last_name:
+            return jsonify({'error': 'First Name and Last Name are required'}), 400
+
+        # Prepare fields to update
+        fields_to_update = {
             'first_name': first_name,
             'last_name': last_name,
-            'profile_picture_url': profile_picture_url
-        })
+            'profile_picture_url': profile_picture_url,
+        }
+        if country: fields_to_update['country'] = country
+        if phone_number: fields_to_update['phone_number'] = phone_number
+        if language: fields_to_update['language'] = language
+        if timezone: fields_to_update['timezone'] = timezone
+        if role: fields_to_update['role'] = role
+        if is_active is not None: fields_to_update['is_active'] = is_active
 
-        # Fetch the updated user to return it to the frontend
-        updated_user_snapshot = user_ref.get()
-        if not updated_user_snapshot.exists:
-            print("User not found after update")  # Log if user isn't found
-            return jsonify({'error': 'User not found after update'}), 404
+        # Update the Firestore document
+        user_ref.update(fields_to_update)
 
-        updated_user = updated_user_snapshot.to_dict()
-        print(f"Updated user data: {updated_user}")  # Log updated user data
+        # Fetch updated user data
+        updated_user = user_ref.get().to_dict()
+        print(f"Updated user data: {updated_user}")
 
         return jsonify({
             'message': 'Profile updated successfully',
             'updated_user': updated_user
         }), 200
+
     except Exception as e:
         print(f"Error updating profile: {str(e)}")  # Log the error
         return jsonify({'error': f'Could not update profile: {str(e)}'}), 500
-
-
-    
-@app.route('/search', methods=['GET'])
-def search():
-    query = request.args.get('query', '')
-
-    if not query:
-        return jsonify({'error': 'Query is required'}), 400
-
-    articles_ref = db.collection('news_articles')
-    articles = articles_ref.stream()
-
-    matching_articles = []
-    for article in articles:
-        article_data = article.to_dict()
-        if query.lower() in article_data['title'].lower():
-            matching_articles.append({
-                'id': article.id,
-                'title': article_data['title'],
-                'description': article_data['description']
-            })
-
-    return jsonify(matching_articles), 200
 
 @app.route('/sources', methods=['GET', 'POST'])
 def manage_sources():
