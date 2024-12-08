@@ -1,4 +1,5 @@
 import os
+import psutil
 from flask import Flask, request, jsonify, session
 from flask.cli import load_dotenv
 from flask_cors import CORS
@@ -17,16 +18,15 @@ import random
 import json
 import logging
 import numpy as np
-from transformers import BertTokenizer, BertForSequenceClassification
-import torch
 import warnings
-import string
 from nltk.corpus import stopwords
 import nltk
 import string
 from urllib.parse import urlparse
 from collections import Counter
+import locationtagger
 warnings.filterwarnings("ignore", category=UserWarning)
+
 
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -47,7 +47,7 @@ app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'your_default_secret_key')
 # Firebase initialization
 current_directory = os.path.dirname(os.path.abspath(__file__))
 
-firebase_credentials_path = "/etc/secrets/firestore.txt"
+firebase_credentials_path = "etc/secrets/firestore.txt"
 print(f"Checking if file exists: {firebase_credentials_path}")
 print(f"File exists: {os.path.exists(firebase_credentials_path)}")
 
@@ -394,8 +394,8 @@ def chat_with_custom_api(conversation_history, retries=3):
 
 
 def identify_locations(text):
-    entities = ner(text)
-    locations = [entity['word'] for entity in entities if entity['entity_group'] == 'LOC']
+    place_entity = locationtagger.find_locations(text=text)
+    locations = list(set(place_entity.cities + place_entity.countries + place_entity.regions))
     return locations
 
 def calculate_similarity(title, description):
@@ -406,36 +406,6 @@ def calculate_similarity(title, description):
 
 def is_location_in_kosovo(locations):
     return any(location in kosovo_cities for location in locations)
-
-def predict_clickbaitt(headline):
-    preprocessed_headline = preprocess_text(headline)
-    print("Preprocessed Headline:", preprocessed_headline)  # Debug preprocessed text
-    
-    # Predict using the clickbait model
-    prediction = clickbait_model.predict(preprocessed_headline)
-    print("Model Prediction:", prediction)  # Debug model output
-    
-    # Using threshold of 0.5 instead of rounding
-    return 1 if prediction >= 0.575 else 0
-
-def predict_clickbait(headline, threshold=0.5):
-    # Tokenize the input headline
-    test_encodings = tokenizer([headline], truncation=True, padding=True, max_length=128, return_tensors="pt")
-
-    # Predict
-    model.eval()
-    with torch.no_grad():
-        outputs = model(**test_encodings)
-        logits = outputs.logits  # Raw output scores from the model
-        probabilities = torch.sigmoid(logits)  # Apply sigmoid to get probabilities
-
-        # Check if the probability for "clickbait" (index 1) is greater than the threshold
-        if probabilities[0][1] >= threshold:
-            return 1  # Clickbait
-        else:
-            return 0  # Not clickbait
-
-
 
 
 @app.route('/news_articles/<article_id>', methods=['GET'])
@@ -954,6 +924,15 @@ def delete_source(source_id):
         return jsonify({'message': 'Source deleted successfully'}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+    
+def log_memory_usage():
+ process = psutil.Process(os.getpid())
+ memory_info = process.memory_info()
+ print(f"Memory usage (RSS): {memory_info.rss / 1024 / 1024:.2f} MB")
+ print(f"Memory usage (VMS): {memory_info.vms / 1024 / 1024:.2f} MB")
+
+# Call this function where needed in your app
+log_memory_usage()
 
 if __name__ == '__main__':
     app.run(debug=True)
