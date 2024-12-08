@@ -34,9 +34,6 @@ logger = logging.getLogger()
 load_dotenv() 
 
 
-
-device = 0 if torch.cuda.is_available() else -1 
-
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 
