@@ -126,9 +126,6 @@ def add_cache_control(response):
     response.cache_control.must_revalidate = True
     return response
 
-# Pre-trained NER model
-ner = pipeline("ner", model="dbmdz/bert-large-cased-finetuned-conll03-english", grouped_entities=True)
-
 def generate_password_hash(password):
     hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
     return hashed_password
