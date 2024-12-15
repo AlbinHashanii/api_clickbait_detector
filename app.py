@@ -919,6 +919,11 @@ def delete_source(source_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
     
+@app.route('/health')
+def health():
+    return "Healthy", 200
+
+    
 def log_memory_usage():
  process = psutil.Process(os.getpid())
  memory_info = process.memory_info()
