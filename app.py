@@ -78,6 +78,8 @@ vectorizer_path = os.path.join('data', 'clickbait_data', 'clickbait_vectorizer.p
 model = joblib.load(model_path)
 vectorizer = joblib.load(vectorizer_path)
 
+nltk.download('omw-1.4')
+nltk.download('maxent_ne_chunker_tab')
 nltk.download('averaged_perceptron_tagger_eng')
 nltk.download('punkt_tab')
 nltk.download('stopwords')
