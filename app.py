@@ -166,7 +166,7 @@ def is_same_meaning(title, description):
 
 def translate_and_identify_locations(title, description):
     translated_title = translate_text(title)
-    translated_description = translate_text(description)
+    translated_description = translate_text(description[:5000])
     locations_title = identify_locations(translated_title)
     locations_description = identify_locations(translated_description)
     combined_locations = list(set(locations_title + locations_description))
