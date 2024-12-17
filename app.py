@@ -78,7 +78,7 @@ vectorizer_path = os.path.join('data', 'clickbait_data', 'clickbait_vectorizer.p
 model = joblib.load(model_path)
 vectorizer = joblib.load(vectorizer_path)
 
-nltk.download('punkt')
+nltk.download('punkt_tab')
 nltk.download('stopwords')
 
 def predict_the_clickbait(headline):
